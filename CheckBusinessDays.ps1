@@ -45,5 +45,6 @@ foreach ($days in $targetDays) {
     Write-Output "$days 営業日後: $($resultDate.ToString('yyyy年MM月dd日（ddd）'))"
 }
 
+# 結果を表示したままにする
 Write-Host "Enterキーを押すと終了します..." -ForegroundColor Yellow
 Read-Host

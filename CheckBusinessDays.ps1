@@ -59,33 +59,77 @@ foreach ($days in $targetDays) {
     Write-Output "$days 営業日後: $($resultDate.ToString('yyyy年MM月dd日（ddd）'))"
 }
 
-# 今月の祝日を表示
+# 今月／翌月の祝日を表示
 $currentMonth = $today.Month
 $currentYear = $today.Year
+$todayDate = $today.Date
 $nameColumn = ($csvData[0].PSObject.Properties | Select-Object -Skip 1 -First 1).Name
-$thisMonthHolidays = $csvData | Where-Object {
-    $dateStr = $_.$dateColumn
-    if (![string]::IsNullOrWhiteSpace($dateStr)) {
-        try {
-            $d = [datetime]::ParseExact($dateStr, 'yyyy/M/d', $null)
-            return ($d.Year -eq $currentYear -and $d.Month -eq $currentMonth)
-        } catch { return $false }
+
+# 指定した年月の祝日レコードを取得するヘルパー
+function Get-HolidaysInMonth {
+    param(
+        [int]$year,
+        [int]$month
+    )
+    return $csvData | Where-Object {
+        $dateStr = $_.$dateColumn
+        if (![string]::IsNullOrWhiteSpace($dateStr)) {
+            try {
+                $d = [datetime]::ParseExact($dateStr, 'yyyy/M/d', $null)
+                return ($d.Year -eq $year -and $d.Month -eq $month)
+            } catch { return $false }
+        }
+        return $false
     }
-    return $false
 }
 
-Write-Host ""
-Write-Host "--- 今月（${currentYear}年${currentMonth}月）の祝日 ---" -ForegroundColor Cyan
-if ($thisMonthHolidays) {
+$thisMonthHolidays = Get-HolidaysInMonth -year $currentYear -month $currentMonth
+
+# 今月の祝日のうち、まだ過ぎていないものがあるか確認
+$upcomingThisMonth = $thisMonthHolidays | Where-Object {
+    $d = [datetime]::ParseExact($_.$dateColumn, 'yyyy/M/d', $null)
+    $d.Date -ge $todayDate
+}
+
+if ($upcomingThisMonth) {
+    # 今月にまだ過ぎていない祝日がある場合 → 今月の祝日を表示
+    Write-Host ""
+    Write-Host "--- 今月（${currentYear}年${currentMonth}月）の祝日 ---" -ForegroundColor Cyan
     foreach ($h in $thisMonthHolidays) {
         $d = [datetime]::ParseExact($h.$dateColumn, 'yyyy/M/d', $null)
         $name = $h.$nameColumn
         Write-Host "  $($d.ToString('MM/dd（ddd）')) $name" -ForegroundColor Green
     }
+    Write-Host ""
 } else {
-    Write-Host "  今月は祝日がありません。" -ForegroundColor Gray
-}
-Write-Host ""
+    # 今月の祝日が全て過ぎている（または無い）場合 → 月末の週なら翌月の祝日を表示
+    # 月末の週の判定: 今日が属する週（月曜～日曜）に月末が含まれるか
+    $daysToSunday = (7 - [int]$today.DayOfWeek) % 7
+    $endOfWeek = $today.Date.AddDays($daysToSunday)
+    $lastDayOfMonth = (Get-Date -Year $currentYear -Month $currentMonth -Day 1).AddMonths(1).AddDays(-1).Date
+    $isLastWeekOfMonth = $endOfWeek -ge $lastDayOfMonth
 
+    if ($isLastWeekOfMonth) {
+        $nextMonthDate = $today.AddMonths(1)
+        $nextMonth = $nextMonthDate.Month
+        $nextYear = $nextMonthDate.Year
+        $nextMonthHolidays = Get-HolidaysInMonth -year $nextYear -month $nextMonth
+
+        Write-Host ""
+        Write-Host "--- 翌月（${nextYear}年${nextMonth}月）の祝日 ---" -ForegroundColor Cyan
+        if ($nextMonthHolidays) {
+            foreach ($h in $nextMonthHolidays) {
+                $d = [datetime]::ParseExact($h.$dateColumn, 'yyyy/M/d', $null)
+                $name = $h.$nameColumn
+                Write-Host "  $($d.ToString('MM/dd（ddd）')) $name" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "  翌月に祝日はありません" -ForegroundColor Yellow
+        }
+        Write-Host ""
+    }
+}
+
+# 結果を表示したままにする
 Write-Host "Enterキーを押すと終了します..." -ForegroundColor Yellow
 Read-Host
